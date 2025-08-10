@@ -1,0 +1,65 @@
+{
+  "name": "go3t-notification-team",
+  "displayName": "Go3t Notification Team",
+  "version": "0.0.1",
+  "icon": "resources/logo.png",
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "mcpsearch-sidebar",
+          "title": "Go3t",
+          "icon": "resources/logo.png"
+        }
+      ]
+    },
+    "views": {
+      "mcpsearch-sidebar": [
+        {
+          "id": "mcpsearchView",
+          "name": "Go3t",
+          "type": "webview",
+          "icon": "resources/logo.png"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Go3t Notification Team",
+      "properties": {
+        "mcpsearch.telegram.botToken": {
+          "type": "string",
+          "default": "7938874108:AAGwhfjN5h-AC9KHb0Am2JteDD1Mz67aBUQ",
+          "description": "El token de tu bot de Telegram."
+        },
+        "mcpsearch.telegram.groupId": {
+          "type": "string",
+          "default": "-1002318517831",
+          "description": "El ID del grupo de Telegram donde se enviarán los mensajes."
+        },
+        "mcpsearch.telegram.topicId": {
+          "type": "string",
+          "default": "",
+          "description": "El ID del hilo o tópico del mensaje en el grupo de Telegram."
+        }
+      }
+    }
+  },
+  "activationEvents": [
+    "onView:mcpsearchView"
+  ],
+  "scripts": {
+    "compile": "tsc -p ./"
+  },
+  "devDependencies": {
+    "@types/node-fetch": "^2.6.13",
+    "@types/vscode": "^1.84.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
+  }
+}
