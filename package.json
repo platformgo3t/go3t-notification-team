@@ -1,8 +1,22 @@
 {
   "name": "go3t-notification-team",
   "displayName": "Go3t Notification Team",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "icon": "resources/logo.png",
+  "files": [
+    "out/",
+    "media/",
+    "resources/",
+    "node_modules/"
+  ],
+  "publisher": "Go3t",
+  "author": {
+    "name": "Edgar Javier Peña Hernandez"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/platformgo3t/go3t-notification-team.git"
+  },
   "engines": {
     "vscode": "^1.84.0"
   },
@@ -32,12 +46,12 @@
       "properties": {
         "mcpsearch.telegram.botToken": {
           "type": "string",
-          "default": "7938874108:AAGwhfjN5h-AC9KHb0Am2JteDD1Mz67aBUQ",
+          "default": "",
           "description": "El token de tu bot de Telegram."
         },
         "mcpsearch.telegram.groupId": {
           "type": "string",
-          "default": "-1002318517831",
+          "default": "",
           "description": "El ID del grupo de Telegram donde se enviarán los mensajes."
         },
         "mcpsearch.telegram.topicId": {
@@ -60,6 +74,6 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^2.7.0"
   }
 }
