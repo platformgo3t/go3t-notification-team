@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -11,32 +44,155 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
-const vscode = require("vscode");
-const node_fetch_1 = require("node-fetch");
-const os = require("os");
+const vscode = __importStar(require("vscode"));
+const os = __importStar(require("os"));
+const telegram_1 = require("telegram");
+const sessions_1 = require("telegram/sessions");
+const events_1 = require("telegram/events");
+let tgClient = null;
+let messageHistory = [];
+let unreadCount = 0;
 function activate(context) {
-    const provider = new MCPViewProvider(context);
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider("mcpsearchView", provider));
+    return __awaiter(this, void 0, void 0, function* () {
+        const storedHistory = context.globalState.get('messageHistory');
+        if (storedHistory) {
+            messageHistory = storedHistory;
+        }
+        const provider = new MCPViewProvider(context);
+        context.subscriptions.push(vscode.window.registerWebviewViewProvider("mcpsearchView", provider));
+        yield initTelegramClient(context);
+        if (tgClient) {
+            tgClient.addEventHandler((event) => __awaiter(this, void 0, void 0, function* () {
+                const message = event.message;
+                const chat = yield message.getChat();
+                if (chat && chat.id.toString()) {
+                    const sender = message.sender;
+                    let from = "Desconocido";
+                    if (sender) {
+                        // @ts-ignore
+                        from = sender.firstName || sender.username || "Desconocido";
+                    }
+                    const text = message.message || "[Mensaje sin texto]";
+                    const formattedTime = new Date(message.date * 1000)
+                        .toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                    const formattedMessage = `[${formattedTime}] ${from}: ${text}`;
+                    messageHistory.push(formattedMessage);
+                    if (messageHistory.length > 10) {
+                        messageHistory = messageHistory.slice(-10);
+                    }
+                    yield context.globalState.update('messageHistory', messageHistory);
+                    if (!provider.isVisible()) {
+                        unreadCount++;
+                        provider.updateBadge(unreadCount);
+                    }
+                    provider.postMessageToWebview({
+                        command: 'updateMessages',
+                        messages: messageHistory
+                    });
+                    vscode.window.showInformationMessage(`Nuevo mensaje de ${from}: ${text}`);
+                }
+            }), new events_1.NewMessage({}));
+        }
+    });
+}
+function deactivate() { }
+function initTelegramClient(context) {
+    return __awaiter(this, void 0, void 0, function* () {
+        const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
+        const apiId = config.get('apiId') || 0;
+        const apiHash = config.get('apiHash') || "";
+        const phoneNumber = config.get('phoneNumber') || "";
+        if (!apiId || !apiHash || !phoneNumber) {
+            vscode.window.showErrorMessage('Configura apiId, apiHash y phoneNumber en las opciones de la extensión.');
+            return;
+        }
+        const sessionString = context.globalState.get('telegramSession') || '';
+        const stringSession = new sessions_1.StringSession(sessionString);
+        tgClient = new telegram_1.TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
+        try {
+            yield tgClient.start({
+                phoneNumber: () => __awaiter(this, void 0, void 0, function* () { return phoneNumber; }),
+                password: (hint) => __awaiter(this, void 0, void 0, function* () {
+                    const result = yield vscode.window.showInputBox({
+                        prompt: hint || "Introduce tu contraseña 2FA (si tienes):",
+                        password: true
+                    });
+                    return result !== null && result !== void 0 ? result : "";
+                }),
+                phoneCode: (isCodeViaApp) => __awaiter(this, void 0, void 0, function* () {
+                    const result = yield vscode.window.showInputBox({
+                        prompt: isCodeViaApp
+                            ? "Introduce el código enviado por la app Telegram:"
+                            : "Introduce el código enviado por SMS:"
+                    });
+                    return result !== null && result !== void 0 ? result : "";
+                }),
+                onError: (err) => console.error(err),
+            });
+            if (yield tgClient.isUserAuthorized()) {
+                const newSessionString = stringSession.save();
+                yield context.globalState.update('telegramSession', newSessionString);
+                vscode.window.showInformationMessage("Sesión de Telegram guardada y usuario autorizado.");
+            }
+            else {
+                vscode.window.showInformationMessage("Sesión de Telegram iniciada como usuario, pero no autorizada.");
+            }
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`Error al iniciar sesión en Telegram: ${error}`);
+        }
+    });
 }
 class MCPViewProvider {
     constructor(_context) {
         this._context = _context;
     }
-    resolveWebviewView(webviewView, context, _token) {
+    resolveWebviewView(webviewView) {
         this._view = webviewView;
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this._context.extensionUri],
         };
-        webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-        // Escuchar mensajes del webview
         this._view.webview.onDidReceiveMessage(message => {
-            switch (message.command) {
-                case 'sendMessage':
-                    this.sendTelegramMessage(message.text);
-                    return;
+            if (message.command === 'sendMessage') {
+                this.sendTelegramMessage(message.text);
+            }
+            if (message.command === 'markAsRead') {
+                unreadCount = 0;
+                this.updateBadge(unreadCount);
             }
         }, undefined, this._context.subscriptions);
+        webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+        // La lógica de reseteo se activa cuando la visibilidad cambia a visible
+        this._view.onDidChangeVisibility(() => {
+            var _a;
+            if ((_a = this._view) === null || _a === void 0 ? void 0 : _a.visible) {
+                unreadCount = 0;
+                this.updateBadge(unreadCount);
+                this.postMessageToWebview({
+                    command: 'updateMessages',
+                    messages: messageHistory
+                });
+            }
+        });
+    }
+    isVisible() {
+        var _a;
+        return !!((_a = this._view) === null || _a === void 0 ? void 0 : _a.visible);
+    }
+    updateBadge(count) {
+        if (this._view) {
+            if (count > 0) {
+                this._view.badge = { value: count, tooltip: `${count} mensajes nuevos` };
+            }
+            else {
+                this._view.badge = undefined;
+            }
+        }
+    }
+    postMessageToWebview(message) {
+        var _a;
+        (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage(message);
     }
     getHtmlForWebview(webview) {
         const userName = this.getUserName();
@@ -48,87 +204,99 @@ class MCPViewProvider {
         <meta charset="UTF-8">
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
         <link href="${styleUri}" rel="stylesheet">
-        <title>Panel Go3t</title>
     </head>
     <body>
-        <h2>Enviar Notificacion al TEAM</h2>
-        <textarea id="messageTextarea" placeholder="Escribe tu mensaje..."></textarea>
-        <br/>
-        <button id="sendButton">Enviar</button>
-
+        <h2>Mensajes de Telegram</h2>
+        <div id="messageContainer"></div>
+        <div id="inputArea">
+            <textarea id="messageTextarea" placeholder="Escribe tu mensaje..."></textarea>
+            <button id="sendButton">Enviar</button>
+            <button id="readButton">Leído</button>
+        </div>
         <script nonce="${nonce}">
             const vscode = acquireVsCodeApi();
             const sendButton = document.getElementById('sendButton');
+            const readButton = document.getElementById('readButton');
             const messageTextarea = document.getElementById('messageTextarea');
-            
-            const userName = '${userName}';
-            
-            sendButton.addEventListener('click', () => {
-                const text = messageTextarea.value;
-                
-                // --- CAMBIO AQUÍ ---
-                // Se usa una plantilla de cadena de JavaScript (con acentos graves)
-                const fullMessage = \`Usuario: \${userName}\n\nMensaje desde Visual Studio Code:\n\n\${text}\`;
+            const messageContainer = document.getElementById('messageContainer');
 
-                vscode.postMessage({
-                    command: 'sendMessage',
-                    text: fullMessage
-                });
+            function sendMessage() {
+                const text = messageTextarea.value;
+                if (text.trim()) {
+                    vscode.postMessage({ command: 'sendMessage', text });
+                    messageTextarea.value = '';
+                    messageTextarea.focus();
+                }
+            }
+
+            sendButton.addEventListener('click', () => {
+                sendMessage();
+            });
+            
+            readButton.addEventListener('click', () => {
+                vscode.postMessage({ command: 'markAsRead' });
+            });
+
+            messageTextarea.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            window.addEventListener('message', event => {
+                if (event.data.command === 'updateMessages') {
+                    messageContainer.innerHTML = '';
+                    event.data.messages.forEach(msg => {
+                        const p = document.createElement('p');
+                        p.textContent = msg;
+                        messageContainer.appendChild(p);
+                    });
+                    messageContainer.scrollTop = messageContainer.scrollHeight;
+                }
             });
         </script>
     </body>
     </html>`;
     }
     getUserName() {
-        // Obtener el nombre de usuario del sistema operativo
-        // En algunos sistemas operativos, es 'USER' o 'USERNAME'
-        return os.userInfo().username || 'Usuario Desconocido';
+        return os.userInfo().username || 'Usuario';
     }
     sendTelegramMessage(text) {
         return __awaiter(this, void 0, void 0, function* () {
-            const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
-            const token = config.get('botToken');
-            const groupId = config.get('groupId');
-            const topicId = config.get('topicId');
-            if (!token || !groupId) {
-                vscode.window.showErrorMessage('Por favor, configura el token del bot y el ID del grupo en las configuraciones de la extensión.');
+            if (!tgClient) {
+                vscode.window.showErrorMessage('No hay sesión activa de Telegram.');
+                return;
+            }
+            const groupId = vscode.workspace.getConfiguration('mcpsearch.telegram').get('groupId');
+            if (!groupId) {
+                vscode.window.showErrorMessage('Configura el ID del grupo en las opciones de la extensión.');
                 return;
             }
             try {
-                const url = `https://api.telegram.org/bot${token}/sendMessage`;
-                const body = {
-                    chat_id: groupId,
-                    text: text,
-                };
-                if (topicId) {
-                    body.message_thread_id = topicId;
+                yield tgClient.sendMessage(groupId, { message: text });
+                const now = new Date();
+                const formattedTime = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                const formattedMessage = `[${formattedTime}] Tú: ${text}`;
+                messageHistory.push(formattedMessage);
+                if (messageHistory.length > 10) {
+                    messageHistory = messageHistory.slice(-10);
                 }
-                const response = yield (0, node_fetch_1.default)(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(body),
+                yield this._context.globalState.update('messageHistory', messageHistory);
+                this.postMessageToWebview({
+                    command: 'updateMessages',
+                    messages: messageHistory
                 });
-                if (!response.ok) {
-                    const errorText = yield response.text();
-                    throw new Error(`Error al enviar mensaje: ${response.status} - ${errorText}`);
-                }
-                vscode.window.showInformationMessage('Mensaje enviado con éxito a Telegram.');
+                vscode.window.showInformationMessage('Mensaje enviado.');
             }
-            catch (error) {
-                vscode.window.showErrorMessage(`Error al enviar mensaje a Telegram: ${error instanceof Error ? error.message : String(error)}`);
+            catch (err) {
+                vscode.window.showErrorMessage(`Error enviando mensaje: ${err}`);
             }
         });
     }
 }
 function getNonce() {
-    let text = '';
     const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return Array.from({ length: 32 }, () => possible.charAt(Math.floor(Math.random() * possible.length))).join('');
 }
-function deactivate() { }
 //# sourceMappingURL=extension.js.map

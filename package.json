@@ -1,7 +1,7 @@
 {
   "name": "go3t-notification-team",
   "displayName": "Go3t Notification Team",
-  "version": "0.0.2",
+  "version": "0.0.5",
   "icon": "resources/logo.png",
   "files": [
     "out/",
@@ -44,20 +44,25 @@
     "configuration": {
       "title": "Go3t Notification Team",
       "properties": {
-        "mcpsearch.telegram.botToken": {
+        "mcpsearch.telegram.apiId": {
+          "type": "number",
+          "default": 0,
+          "description": "El API ID de Telegram para la sesión de usuario."
+        },
+        "mcpsearch.telegram.apiHash": {
           "type": "string",
           "default": "",
-          "description": "El token de tu bot de Telegram."
+          "description": "El API Hash de Telegram para la sesión de usuario."
+        },
+        "mcpsearch.telegram.phoneNumber": {
+          "type": "string",
+          "default": "",
+          "description": "El número de teléfono para la sesión de usuario en Telegram. ej: 535xxxxxxx"
         },
         "mcpsearch.telegram.groupId": {
           "type": "string",
           "default": "",
           "description": "El ID del grupo de Telegram donde se enviarán los mensajes."
-        },
-        "mcpsearch.telegram.topicId": {
-          "type": "string",
-          "default": "",
-          "description": "El ID del hilo o tópico del mensaje en el grupo de Telegram."
         }
       }
     }
@@ -69,11 +74,14 @@
     "compile": "tsc -p ./"
   },
   "devDependencies": {
+    "@types/node": "^24.2.1",
     "@types/node-fetch": "^2.6.13",
     "@types/vscode": "^1.84.0",
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "node-fetch": "^2.7.0"
+    "input": "^1.0.1",
+    "node-fetch": "^2.7.0",
+    "telegram": "^2.26.22"
   }
 }
