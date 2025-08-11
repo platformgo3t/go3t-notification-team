@@ -185,7 +185,7 @@ class MCPViewProvider implements vscode.WebviewViewProvider {
         <link href="${styleUri}" rel="stylesheet">
     </head>
     <body>
-        <h2>Mensajes de Telegram</h2>
+        <h2>Notificaciones del TEAM</h2>
         <div id="messageContainer"></div>
         <div id="inputArea">
             <textarea id="messageTextarea" placeholder="Escribe tu mensaje..."></textarea>
