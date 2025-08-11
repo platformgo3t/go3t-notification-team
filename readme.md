@@ -10,22 +10,20 @@ Esta es una extensión de Visual Studio Code que te permite enviar notificacione
 
 - Integración en el IDE: El panel de la extensión se integra de forma nativa en la barra de actividad de VS Code.
 
-- Configuración Sencilla: Permite configurar el botToken, groupId y topicId a través de la interfaz de configuración de VS Code.
 
 
 ### Configuración
 
 Para usar esta extensión, necesitas configurar tu bot de Telegram y obtener el ID del grupo y del tópico.
 
-- Obtener el Token del Bot: Habla con el BotFather en Telegram para crear un nuevo bot y obtener tu token.
+- API ID de Telegram para la sesión de usuario.
 
-- Obtener el ID del Grupo:
+- API Hash de Telegram para la sesión de usuario.
 
-- Añade tu bot al grupo de Telegram.
+- El número de teléfono para la sesión de usuario en Telegram. ej: 535xxxxxxx.
 
-- Envía un mensaje al grupo con @elbot para que el bot responda.
+- El ID del grupo de Telegram donde se enviarán los mensajes.
 
-Usa la API de Telegram para encontrar el chat_id y el topicId. Puedes hacerlo con una solicitud como https://api.telegram.org/bot[TU_TOKEN]/getUpdates.
 
 ### Configurar en VS Code:
 

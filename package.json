@@ -46,18 +46,18 @@
       "properties": {
         "mcpsearch.telegram.apiId": {
           "type": "number",
-          "default": 22813873,
+          "default": 0,
           "description": "El API ID de Telegram para la sesión de usuario."
         },
         "mcpsearch.telegram.apiHash": {
           "type": "string",
-          "default": "a3bb4646465d03b03592705a61e23bd2",
+          "default": "",
           "description": "El API Hash de Telegram para la sesión de usuario."
         },
         "mcpsearch.telegram.phoneNumber": {
           "type": "string",
-          "default": "5358155302",
-          "description": "El número de teléfono para la sesión de usuario en Telegram."
+          "default": "",
+          "description": "El número de teléfono para la sesión de usuario en Telegram. ej: 535xxxxxxx"
         },
         "mcpsearch.telegram.groupId": {
           "type": "string",

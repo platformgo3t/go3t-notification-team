@@ -50,18 +50,21 @@ const telegram_1 = require("telegram");
 const sessions_1 = require("telegram/sessions");
 const events_1 = require("telegram/events");
 let tgClient = null;
-let messageHistory = []; // Historial de mensajes
+let messageHistory = [];
+let unreadCount = 0;
 function activate(context) {
     return __awaiter(this, void 0, void 0, function* () {
+        const storedHistory = context.globalState.get('messageHistory');
+        if (storedHistory) {
+            messageHistory = storedHistory;
+        }
         const provider = new MCPViewProvider(context);
         context.subscriptions.push(vscode.window.registerWebviewViewProvider("mcpsearchView", provider));
-        yield initTelegramClient();
+        yield initTelegramClient(context);
         if (tgClient) {
             tgClient.addEventHandler((event) => __awaiter(this, void 0, void 0, function* () {
                 const message = event.message;
                 const chat = yield message.getChat();
-                // const groupId = vscode.workspace.getConfiguration('mcpsearch.telegram').get<string>('groupId');
-                // if (!groupId) return;
                 if (chat && chat.id.toString()) {
                     const sender = message.sender;
                     let from = "Desconocido";
@@ -77,12 +80,15 @@ function activate(context) {
                     if (messageHistory.length > 10) {
                         messageHistory = messageHistory.slice(-10);
                     }
-                    // Actualizar el Webview con los mensajes
+                    yield context.globalState.update('messageHistory', messageHistory);
+                    if (!provider.isVisible()) {
+                        unreadCount++;
+                        provider.updateBadge(unreadCount);
+                    }
                     provider.postMessageToWebview({
                         command: 'updateMessages',
                         messages: messageHistory
                     });
-                    // Mostrar notificación con el mensaje recibido
                     vscode.window.showInformationMessage(`Nuevo mensaje de ${from}: ${text}`);
                 }
             }), new events_1.NewMessage({}));
@@ -90,7 +96,7 @@ function activate(context) {
     });
 }
 function deactivate() { }
-function initTelegramClient() {
+function initTelegramClient(context) {
     return __awaiter(this, void 0, void 0, function* () {
         const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
         const apiId = config.get('apiId') || 0;
@@ -100,28 +106,41 @@ function initTelegramClient() {
             vscode.window.showErrorMessage('Configura apiId, apiHash y phoneNumber en las opciones de la extensión.');
             return;
         }
-        const stringSession = new sessions_1.StringSession(""); // Aquí podrías guardar sesión persistente
+        const sessionString = context.globalState.get('telegramSession') || '';
+        const stringSession = new sessions_1.StringSession(sessionString);
         tgClient = new telegram_1.TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
-        yield tgClient.start({
-            phoneNumber: () => __awaiter(this, void 0, void 0, function* () { return phoneNumber; }),
-            password: (hint) => __awaiter(this, void 0, void 0, function* () {
-                const result = yield vscode.window.showInputBox({
-                    prompt: hint || "Introduce tu contraseña 2FA (si tienes):",
-                    password: true
-                });
-                return result !== null && result !== void 0 ? result : ""; // Si el usuario cancela, devuelve ""
-            }),
-            phoneCode: (isCodeViaApp) => __awaiter(this, void 0, void 0, function* () {
-                const result = yield vscode.window.showInputBox({
-                    prompt: isCodeViaApp
-                        ? "Introduce el código enviado por la app Telegram:"
-                        : "Introduce el código enviado por SMS:"
-                });
-                return result !== null && result !== void 0 ? result : "";
-            }),
-            onError: (err) => console.error(err),
-        });
-        vscode.window.showInformationMessage("Sesión de Telegram iniciada como usuario.");
+        try {
+            yield tgClient.start({
+                phoneNumber: () => __awaiter(this, void 0, void 0, function* () { return phoneNumber; }),
+                password: (hint) => __awaiter(this, void 0, void 0, function* () {
+                    const result = yield vscode.window.showInputBox({
+                        prompt: hint || "Introduce tu contraseña 2FA (si tienes):",
+                        password: true
+                    });
+                    return result !== null && result !== void 0 ? result : "";
+                }),
+                phoneCode: (isCodeViaApp) => __awaiter(this, void 0, void 0, function* () {
+                    const result = yield vscode.window.showInputBox({
+                        prompt: isCodeViaApp
+                            ? "Introduce el código enviado por la app Telegram:"
+                            : "Introduce el código enviado por SMS:"
+                    });
+                    return result !== null && result !== void 0 ? result : "";
+                }),
+                onError: (err) => console.error(err),
+            });
+            if (yield tgClient.isUserAuthorized()) {
+                const newSessionString = stringSession.save();
+                yield context.globalState.update('telegramSession', newSessionString);
+                vscode.window.showInformationMessage("Sesión de Telegram guardada y usuario autorizado.");
+            }
+            else {
+                vscode.window.showInformationMessage("Sesión de Telegram iniciada como usuario, pero no autorizada.");
+            }
+        }
+        catch (error) {
+            vscode.window.showErrorMessage(`Error al iniciar sesión en Telegram: ${error}`);
+        }
     });
 }
 class MCPViewProvider {
@@ -134,17 +153,42 @@ class MCPViewProvider {
             enableScripts: true,
             localResourceRoots: [this._context.extensionUri],
         };
-        webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-        // Envía los mensajes actuales al abrir la vista
-        this.postMessageToWebview({
-            command: 'updateMessages',
-            messages: messageHistory
-        });
         this._view.webview.onDidReceiveMessage(message => {
             if (message.command === 'sendMessage') {
                 this.sendTelegramMessage(message.text);
             }
+            if (message.command === 'markAsRead') {
+                unreadCount = 0;
+                this.updateBadge(unreadCount);
+            }
         }, undefined, this._context.subscriptions);
+        webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+        // La lógica de reseteo se activa cuando la visibilidad cambia a visible
+        this._view.onDidChangeVisibility(() => {
+            var _a;
+            if ((_a = this._view) === null || _a === void 0 ? void 0 : _a.visible) {
+                unreadCount = 0;
+                this.updateBadge(unreadCount);
+                this.postMessageToWebview({
+                    command: 'updateMessages',
+                    messages: messageHistory
+                });
+            }
+        });
+    }
+    isVisible() {
+        var _a;
+        return !!((_a = this._view) === null || _a === void 0 ? void 0 : _a.visible);
+    }
+    updateBadge(count) {
+        if (this._view) {
+            if (count > 0) {
+                this._view.badge = { value: count, tooltip: `${count} mensajes nuevos` };
+            }
+            else {
+                this._view.badge = undefined;
+            }
+        }
     }
     postMessageToWebview(message) {
         var _a;
@@ -153,53 +197,67 @@ class MCPViewProvider {
     getHtmlForWebview(webview) {
         const userName = this.getUserName();
         const nonce = getNonce();
+        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'main.css'));
         return `<!DOCTYPE html>
-        <html lang="es">
-        <head>
-            <meta charset="UTF-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
-            <style>
-                body { font-family: sans-serif; padding: 10px; }
-                #messageContainer { max-height: 300px; overflow-y: auto; }
-                textarea { width: 100%; height: 50px; }
-                button { margin-top: 5px; }
-            </style>
-        </head>
-        <body>
-            <h2>Mensajes de Telegram</h2>
-            <div id="messageContainer"></div>
-            <hr>
-            <h2>Enviar mensaje</h2>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+        <link href="${styleUri}" rel="stylesheet">
+    </head>
+    <body>
+        <h2>Mensajes de Telegram</h2>
+        <div id="messageContainer"></div>
+        <div id="inputArea">
             <textarea id="messageTextarea" placeholder="Escribe tu mensaje..."></textarea>
-            <br/>
             <button id="sendButton">Enviar</button>
-            <script nonce="${nonce}">
-                const vscode = acquireVsCodeApi();
-                const sendButton = document.getElementById('sendButton');
-                const messageTextarea = document.getElementById('messageTextarea');
-                const messageContainer = document.getElementById('messageContainer');
-                
-                sendButton.addEventListener('click', () => {
-                    const text = messageTextarea.value;
-                    if (text.trim()) {
-                        vscode.postMessage({ command: 'sendMessage', text });
-                        messageTextarea.value = '';
-                    }
-                });
+            <button id="readButton">Leído</button>
+        </div>
+        <script nonce="${nonce}">
+            const vscode = acquireVsCodeApi();
+            const sendButton = document.getElementById('sendButton');
+            const readButton = document.getElementById('readButton');
+            const messageTextarea = document.getElementById('messageTextarea');
+            const messageContainer = document.getElementById('messageContainer');
 
-                window.addEventListener('message', event => {
-                    if (event.data.command === 'updateMessages') {
-                        messageContainer.innerHTML = '';
-                        event.data.messages.forEach(msg => {
-                            const p = document.createElement('p');
-                            p.textContent = msg;
-                            messageContainer.appendChild(p);
-                        });
-                    }
-                });
-            </script>
-        </body>
-        </html>`;
+            function sendMessage() {
+                const text = messageTextarea.value;
+                if (text.trim()) {
+                    vscode.postMessage({ command: 'sendMessage', text });
+                    messageTextarea.value = '';
+                    messageTextarea.focus();
+                }
+            }
+
+            sendButton.addEventListener('click', () => {
+                sendMessage();
+            });
+            
+            readButton.addEventListener('click', () => {
+                vscode.postMessage({ command: 'markAsRead' });
+            });
+
+            messageTextarea.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+
+            window.addEventListener('message', event => {
+                if (event.data.command === 'updateMessages') {
+                    messageContainer.innerHTML = '';
+                    event.data.messages.forEach(msg => {
+                        const p = document.createElement('p');
+                        p.textContent = msg;
+                        messageContainer.appendChild(p);
+                    });
+                    messageContainer.scrollTop = messageContainer.scrollHeight;
+                }
+            });
+        </script>
+    </body>
+    </html>`;
     }
     getUserName() {
         return os.userInfo().username || 'Usuario';
@@ -217,7 +275,6 @@ class MCPViewProvider {
             }
             try {
                 yield tgClient.sendMessage(groupId, { message: text });
-                // Agregar mensaje enviado al historial con "Tú" como remitente
                 const now = new Date();
                 const formattedTime = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
                 const formattedMessage = `[${formattedTime}] Tú: ${text}`;
@@ -225,7 +282,7 @@ class MCPViewProvider {
                 if (messageHistory.length > 10) {
                     messageHistory = messageHistory.slice(-10);
                 }
-                // Actualizar el webview con el nuevo mensaje
+                yield this._context.globalState.update('messageHistory', messageHistory);
                 this.postMessageToWebview({
                     command: 'updateMessages',
                     messages: messageHistory
