@@ -1,4 +1,37 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -11,45 +44,105 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
-const vscode = require("vscode");
-const node_fetch_1 = require("node-fetch");
-const os = require("os");
-let lastUpdateId = 0;
-let messageHistory = []; // Almacena el historial de mensajes
+const vscode = __importStar(require("vscode"));
+const os = __importStar(require("os"));
+const telegram_1 = require("telegram");
+const sessions_1 = require("telegram/sessions");
+const events_1 = require("telegram/events");
+let tgClient = null;
+let messageHistory = []; // Historial de mensajes
 function activate(context) {
-    const provider = new MCPViewProvider(context);
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider("mcpsearchView", provider));
-    let intervalId = setInterval(() => {
-        if (provider.isPanelActive()) {
-            readNewTelegramMessages(provider);
+    return __awaiter(this, void 0, void 0, function* () {
+        const provider = new MCPViewProvider(context);
+        context.subscriptions.push(vscode.window.registerWebviewViewProvider("mcpsearchView", provider));
+        yield initTelegramClient();
+        if (tgClient) {
+            tgClient.addEventHandler((event) => __awaiter(this, void 0, void 0, function* () {
+                const message = event.message;
+                const chat = yield message.getChat();
+                // const groupId = vscode.workspace.getConfiguration('mcpsearch.telegram').get<string>('groupId');
+                // if (!groupId) return;
+                if (chat && chat.id.toString()) {
+                    const sender = message.sender;
+                    let from = "Desconocido";
+                    if (sender) {
+                        // @ts-ignore
+                        from = sender.firstName || sender.username || "Desconocido";
+                    }
+                    const text = message.message || "[Mensaje sin texto]";
+                    const formattedTime = new Date(message.date * 1000)
+                        .toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                    const formattedMessage = `[${formattedTime}] ${from}: ${text}`;
+                    messageHistory.push(formattedMessage);
+                    if (messageHistory.length > 10) {
+                        messageHistory = messageHistory.slice(-10);
+                    }
+                    // Actualizar el Webview con los mensajes
+                    provider.postMessageToWebview({
+                        command: 'updateMessages',
+                        messages: messageHistory
+                    });
+                    // Mostrar notificación con el mensaje recibido
+                    vscode.window.showInformationMessage(`Nuevo mensaje de ${from}: ${text}`);
+                }
+            }), new events_1.NewMessage({}));
         }
-    }, 2000);
-    context.subscriptions.push({
-        dispose: () => clearInterval(intervalId)
     });
 }
 function deactivate() { }
+function initTelegramClient() {
+    return __awaiter(this, void 0, void 0, function* () {
+        const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
+        const apiId = config.get('apiId') || 0;
+        const apiHash = config.get('apiHash') || "";
+        const phoneNumber = config.get('phoneNumber') || "";
+        if (!apiId || !apiHash || !phoneNumber) {
+            vscode.window.showErrorMessage('Configura apiId, apiHash y phoneNumber en las opciones de la extensión.');
+            return;
+        }
+        const stringSession = new sessions_1.StringSession(""); // Aquí podrías guardar sesión persistente
+        tgClient = new telegram_1.TelegramClient(stringSession, apiId, apiHash, { connectionRetries: 5 });
+        yield tgClient.start({
+            phoneNumber: () => __awaiter(this, void 0, void 0, function* () { return phoneNumber; }),
+            password: (hint) => __awaiter(this, void 0, void 0, function* () {
+                const result = yield vscode.window.showInputBox({
+                    prompt: hint || "Introduce tu contraseña 2FA (si tienes):",
+                    password: true
+                });
+                return result !== null && result !== void 0 ? result : ""; // Si el usuario cancela, devuelve ""
+            }),
+            phoneCode: (isCodeViaApp) => __awaiter(this, void 0, void 0, function* () {
+                const result = yield vscode.window.showInputBox({
+                    prompt: isCodeViaApp
+                        ? "Introduce el código enviado por la app Telegram:"
+                        : "Introduce el código enviado por SMS:"
+                });
+                return result !== null && result !== void 0 ? result : "";
+            }),
+            onError: (err) => console.error(err),
+        });
+        vscode.window.showInformationMessage("Sesión de Telegram iniciada como usuario.");
+    });
+}
 class MCPViewProvider {
     constructor(_context) {
         this._context = _context;
     }
-    resolveWebviewView(webviewView, context, _token) {
+    resolveWebviewView(webviewView) {
         this._view = webviewView;
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this._context.extensionUri],
         };
-        // Cargar los últimos 10 mensajes al iniciar el panel
-        readNewTelegramMessages(this, true);
         webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
+        // Envía los mensajes actuales al abrir la vista
+        this.postMessageToWebview({
+            command: 'updateMessages',
+            messages: messageHistory
+        });
         this._view.webview.onDidReceiveMessage(message => {
-            switch (message.command) {
-                case 'sendMessage':
-                    this.sendTelegramMessage(message.text);
-                    return;
-                case 'requestMessages':
-                    readNewTelegramMessages(this);
-                    return;
+            if (message.command === 'sendMessage') {
+                this.sendTelegramMessage(message.text);
             }
         }, undefined, this._context.subscriptions);
     }
@@ -57,82 +150,47 @@ class MCPViewProvider {
         var _a;
         (_a = this._view) === null || _a === void 0 ? void 0 : _a.webview.postMessage(message);
     }
-    isPanelActive() {
-        var _a;
-        return !!((_a = this._view) === null || _a === void 0 ? void 0 : _a.visible);
-    }
     getHtmlForWebview(webview) {
         const userName = this.getUserName();
         const nonce = getNonce();
-        const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._context.extensionUri, 'media', 'main.css'));
         return `<!DOCTYPE html>
         <html lang="es">
         <head>
             <meta charset="UTF-8">
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
-            <link href="${styleUri}" rel="stylesheet">
-            <title>Panel Go3t</title>
             <style>
-                button img {
-                    vertical-align: middle;
-                    margin-right: 5px;
-                    width: 16px;
-                    height: 16px;
-                }
+                body { font-family: sans-serif; padding: 10px; }
+                #messageContainer { max-height: 300px; overflow-y: auto; }
+                textarea { width: 100%; height: 50px; }
+                button { margin-top: 5px; }
             </style>
         </head>
         <body>
             <h2>Mensajes de Telegram</h2>
-            <button id="refreshButton">Actualizar Mensajes</button>
             <div id="messageContainer"></div>
-
             <hr>
-
-            <h2>Enviar Notificacion al TEAM</h2>
+            <h2>Enviar mensaje</h2>
             <textarea id="messageTextarea" placeholder="Escribe tu mensaje..."></textarea>
             <br/>
             <button id="sendButton">Enviar</button>
-
             <script nonce="${nonce}">
                 const vscode = acquireVsCodeApi();
                 const sendButton = document.getElementById('sendButton');
-                const refreshButton = document.getElementById('refreshButton');
                 const messageTextarea = document.getElementById('messageTextarea');
                 const messageContainer = document.getElementById('messageContainer');
                 
-                const userName = '${userName}';
-                
-                function sendMessage() {
+                sendButton.addEventListener('click', () => {
                     const text = messageTextarea.value;
-                    if (text.trim() === '') return;
-                    const fullMessage = \`Usuario: \${userName}\n\nMensaje desde Visual Studio Code:\n\n\${text}\`;
-                    vscode.postMessage({
-                        command: 'sendMessage',
-                        text: fullMessage
-                    });
-                    messageTextarea.value = '';
-                }
-
-                sendButton.addEventListener('click', sendMessage);
-
-                messageTextarea.addEventListener('keydown', (event) => {
-                    if (event.key === 'Enter' && !event.shiftKey) {
-                        event.preventDefault();
-                        sendMessage();
+                    if (text.trim()) {
+                        vscode.postMessage({ command: 'sendMessage', text });
+                        messageTextarea.value = '';
                     }
                 });
 
-                refreshButton.addEventListener('click', () => {
-                    vscode.postMessage({
-                        command: 'requestMessages'
-                    });
-                });
-
                 window.addEventListener('message', event => {
-                    const message = event.data;
-                    if (message.command === 'updateMessages') {
+                    if (event.data.command === 'updateMessages') {
                         messageContainer.innerHTML = '';
-                        message.messages.forEach(msg => {
+                        event.data.messages.forEach(msg => {
                             const p = document.createElement('p');
                             p.textContent = msg;
                             messageContainer.appendChild(p);
@@ -144,110 +202,44 @@ class MCPViewProvider {
         </html>`;
     }
     getUserName() {
-        return os.userInfo().username || 'Usuario Desconocido';
+        return os.userInfo().username || 'Usuario';
     }
     sendTelegramMessage(text) {
         return __awaiter(this, void 0, void 0, function* () {
-            const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
-            const token = config.get('botToken');
-            const groupId = config.get('groupId');
-            const topicId = config.get('topicId');
-            if (!token || !groupId) {
-                vscode.window.showErrorMessage('Por favor, configura el token del bot y el ID del grupo en las configuraciones de la extensión.');
+            if (!tgClient) {
+                vscode.window.showErrorMessage('No hay sesión activa de Telegram.');
+                return;
+            }
+            const groupId = vscode.workspace.getConfiguration('mcpsearch.telegram').get('groupId');
+            if (!groupId) {
+                vscode.window.showErrorMessage('Configura el ID del grupo en las opciones de la extensión.');
                 return;
             }
             try {
-                const url = `https://api.telegram.org/bot${token}/sendMessage`;
-                const body = {
-                    chat_id: groupId,
-                    text: text,
-                };
-                if (topicId) {
-                    body.message_thread_id = topicId;
+                yield tgClient.sendMessage(groupId, { message: text });
+                // Agregar mensaje enviado al historial con "Tú" como remitente
+                const now = new Date();
+                const formattedTime = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                const formattedMessage = `[${formattedTime}] Tú: ${text}`;
+                messageHistory.push(formattedMessage);
+                if (messageHistory.length > 10) {
+                    messageHistory = messageHistory.slice(-10);
                 }
-                const response = yield (0, node_fetch_1.default)(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(body),
+                // Actualizar el webview con el nuevo mensaje
+                this.postMessageToWebview({
+                    command: 'updateMessages',
+                    messages: messageHistory
                 });
-                if (!response.ok) {
-                    const errorText = yield response.text();
-                    throw new Error(`Error al enviar mensaje: ${response.status} - ${errorText}`);
-                }
-                vscode.window.showInformationMessage('Mensaje enviado con éxito a Telegram.');
+                vscode.window.showInformationMessage('Mensaje enviado.');
             }
-            catch (error) {
-                vscode.window.showErrorMessage(`Error al enviar mensaje a Telegram: ${error instanceof Error ? error.message : String(error)}`);
+            catch (err) {
+                vscode.window.showErrorMessage(`Error enviando mensaje: ${err}`);
             }
         });
     }
 }
-function readNewTelegramMessages(provider_1) {
-    return __awaiter(this, arguments, void 0, function* (provider, isInitialLoad = false) {
-        var _a, _b;
-        const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
-        const token = config.get('botToken');
-        const groupId = config.get('groupId');
-        if (!token || !groupId) {
-            return;
-        }
-        try {
-            let url = `https://api.telegram.org/bot${token}/getUpdates`;
-            if (!isInitialLoad) {
-                url += `?offset=${lastUpdateId + 1}`;
-            }
-            else {
-                // Carga los 10 mensajes más recientes al iniciar
-                url += `?limit=10`;
-            }
-            const response = yield (0, node_fetch_1.default)(url);
-            if (!response.ok) {
-                return;
-            }
-            const data = yield response.json();
-            const newMessages = [];
-            if (data.result && data.result.length > 0) {
-                for (const update of data.result) {
-                    lastUpdateId = update.update_id;
-                    const message = update.message;
-                    // Filtra para que solo se muestren los mensajes del grupo
-                    if (message && message.chat.id.toString() === groupId) {
-                        // Identifica al remitente, incluyendo los mensajes del bot
-                        const from = ((_a = message.from) === null || _a === void 0 ? void 0 : _a.is_bot) ? 'Bot de la Extensión' : (((_b = message.from) === null || _b === void 0 ? void 0 : _b.first_name) || 'Desconocido');
-                        const text = message.text || '[Mensaje sin texto]';
-                        // Crea una notificación para los mensajes nuevos
-                        vscode.window.showInformationMessage(`Go3t - : [${from}] ${text}`);
-                        const messageDate = new Date(message.date * 1000);
-                        const formattedTime = messageDate.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-                        newMessages.push(`[${formattedTime}] ${from}: ${text}`);
-                    }
-                }
-                // Unir los mensajes nuevos al historial existente
-                messageHistory = messageHistory.concat(newMessages);
-                // Mantener solo los últimos 10 mensajes
-                if (messageHistory.length > 10) {
-                    messageHistory = messageHistory.slice(messageHistory.length - 10);
-                }
-                // Enviar el historial completo al webview
-                provider.postMessageToWebview({
-                    command: 'updateMessages',
-                    messages: messageHistory
-                });
-            }
-        }
-        catch (error) {
-            vscode.window.showErrorMessage(`Error al leer mensajes de Telegram: ${error instanceof Error ? error.message : String(error)}`);
-        }
-    });
-}
 function getNonce() {
-    let text = '';
     const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (let i = 0; i < 32; i++) {
-        text += possible.charAt(Math.floor(Math.random() * possible.length));
-    }
-    return text;
+    return Array.from({ length: 32 }, () => possible.charAt(Math.floor(Math.random() * possible.length))).join('');
 }
 //# sourceMappingURL=extension.js.map
