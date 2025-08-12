@@ -62,35 +62,55 @@ function activate(context) {
         context.subscriptions.push(vscode.window.registerWebviewViewProvider("mcpsearchView", provider));
         yield initTelegramClient(context);
         if (tgClient) {
+            const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
+            const groupId = config.get('groupId');
+            // Función auxiliar para limpiar el ID del grupo
+            const cleanGroupId = (id) => {
+                if (!id) {
+                    return '';
+                }
+                // Elimina el "-100" si existe y devuelve el ID como una cadena de texto
+                return id.replace(/^-100/, '');
+            };
+            // Pre-procesar el groupId para eliminar el "-100" si existe,
+            // y mantener el ID numérico puro para una comparación más confiable.
+            const cleanedConfigGroupId = cleanGroupId(groupId);
             tgClient.addEventHandler((event) => __awaiter(this, void 0, void 0, function* () {
                 const message = event.message;
                 const chat = yield message.getChat();
-                if (chat && chat.id.toString()) {
-                    const sender = message.sender;
-                    let from = "Desconocido";
-                    if (sender) {
-                        // @ts-ignore
-                        from = sender.firstName || sender.username || "Desconocido";
-                    }
-                    const text = message.message || "[Mensaje sin texto]";
-                    const formattedTime = new Date(message.date * 1000)
-                        .toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-                    const formattedMessage = `[${formattedTime}] ${from}: ${text}`;
-                    messageHistory.push(formattedMessage);
-                    if (messageHistory.length > 10) {
-                        messageHistory = messageHistory.slice(-10);
-                    }
-                    yield context.globalState.update('messageHistory', messageHistory);
-                    if (!provider.isVisible()) {
-                        unreadCount++;
-                        provider.updateBadge(unreadCount);
-                    }
-                    provider.postMessageToWebview({
-                        command: 'updateMessages',
-                        messages: messageHistory
-                    });
-                    vscode.window.showInformationMessage(`Nuevo mensaje de ${from}: ${text}`);
+                // Obtiene y limpia el ID del chat del mensaje entrante
+                const cleanedChatId = cleanGroupId(chat === null || chat === void 0 ? void 0 : chat.id.toString());
+                // Compara los IDs limpios
+                if (!chat || cleanedChatId !== cleanedConfigGroupId) {
+                    return; // Ignora los mensajes que no sean del grupo configurado
                 }
+                const sender = message.sender;
+                let from = "Desconocido";
+                if (sender) {
+                    // @ts-ignore
+                    from = sender.firstName || sender.username || "Desconocido";
+                }
+                const text = message.message || "[Mensaje sin texto]";
+                const formattedTime = new Date(message.date * 1000)
+                    .toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+                const formattedMessage = `[${formattedTime}] ${from}: ${text}`;
+                messageHistory.push(formattedMessage);
+                if (messageHistory.length > 10) {
+                    messageHistory = messageHistory.slice(-10);
+                }
+                yield context.globalState.update('messageHistory', messageHistory);
+                // Si la vista no está visible, incrementa el contador del badge
+                if (!provider.isVisible()) {
+                    unreadCount++;
+                    provider.updateBadge(unreadCount);
+                }
+                // A diferencia de la lógica del badge, la vista web siempre debe ser actualizada
+                // para que el historial esté listo cuando el usuario abra la vista.
+                provider.postMessageToWebview({
+                    command: 'updateMessages',
+                    messages: messageHistory
+                });
+                vscode.window.showInformationMessage(`GO3T -  ${from}: ${text}`);
             }), new events_1.NewMessage({}));
         }
     });
@@ -132,7 +152,7 @@ function initTelegramClient(context) {
             if (yield tgClient.isUserAuthorized()) {
                 const newSessionString = stringSession.save();
                 yield context.globalState.update('telegramSession', newSessionString);
-                vscode.window.showInformationMessage("Sesión de Telegram guardada y usuario autorizado.");
+                vscode.window.showInformationMessage("Go3t iniciado.");
             }
             else {
                 vscode.window.showInformationMessage("Sesión de Telegram iniciada como usuario, pero no autorizada.");
@@ -206,7 +226,7 @@ class MCPViewProvider {
         <link href="${styleUri}" rel="stylesheet">
     </head>
     <body>
-        <h2>Mensajes de Telegram</h2>
+        <h2>Notificaciones del TEAM</h2>
         <div id="messageContainer"></div>
         <div id="inputArea">
             <textarea id="messageTextarea" placeholder="Escribe tu mensaje..."></textarea>

@@ -22,47 +22,70 @@ export async function activate(context: vscode.ExtensionContext) {
     await initTelegramClient(context);
 
     if (tgClient) {
+        const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
+        const groupId = config.get<string>('groupId');
+        // Función auxiliar para limpiar el ID del grupo
+        const cleanGroupId = (id: string | undefined): string => {
+            if (!id) {
+                return '';
+            }
+            // Elimina el "-100" si existe y devuelve el ID como una cadena de texto
+            return id.replace(/^-100/, '');
+        };
+        // Pre-procesar el groupId para eliminar el "-100" si existe,
+        // y mantener el ID numérico puro para una comparación más confiable.
+        const cleanedConfigGroupId = cleanGroupId(groupId);
+
         tgClient.addEventHandler(async (event: NewMessageEvent) => {
             const message = event.message;
             const chat = await message.getChat();
 
-            if (chat && chat.id.toString()) {
-                const sender = message.sender;
-                let from = "Desconocido";
-                if (sender) {
-                    // @ts-ignore
-                    from = sender.firstName || sender.username || "Desconocido";
-                }
-                const text = message.message || "[Mensaje sin texto]";
-                const formattedTime = new Date(message.date * 1000)
-                    .toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+           // Obtiene y limpia el ID del chat del mensaje entrante
+            const cleanedChatId = cleanGroupId(chat?.id.toString());
 
-                const formattedMessage = `[${formattedTime}] ${from}: ${text}`;
-
-                messageHistory.push(formattedMessage);
-                if (messageHistory.length > 10) {
-                    messageHistory = messageHistory.slice(-10);
-                }
-
-                await context.globalState.update('messageHistory', messageHistory);
-                
-                if (!provider.isVisible()) {
-                    unreadCount++;
-                    provider.updateBadge(unreadCount);
-                }
-
-                provider.postMessageToWebview({
-                    command: 'updateMessages',
-                    messages: messageHistory
-                });
-
-                vscode.window.showInformationMessage(`Nuevo mensaje de ${from}: ${text}`);
+            // Compara los IDs limpios
+            if (!chat || cleanedChatId !== cleanedConfigGroupId) {
+                return; // Ignora los mensajes que no sean del grupo configurado
             }
+
+            const sender = message.sender;
+            let from = "Desconocido";
+            if (sender) {
+                // @ts-ignore
+                from = sender.firstName || sender.username || "Desconocido";
+            }
+            const text = message.message || "[Mensaje sin texto]";
+            const formattedTime = new Date(message.date * 1000)
+                .toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+            const formattedMessage = `[${formattedTime}] ${from}: ${text}`;
+
+            messageHistory.push(formattedMessage);
+            if (messageHistory.length > 10) {
+                messageHistory = messageHistory.slice(-10);
+            }
+
+            await context.globalState.update('messageHistory', messageHistory);
+
+            // Si la vista no está visible, incrementa el contador del badge
+            if (!provider.isVisible()) {
+                unreadCount++;
+                provider.updateBadge(unreadCount);
+            }
+
+            // A diferencia de la lógica del badge, la vista web siempre debe ser actualizada
+            // para que el historial esté listo cuando el usuario abra la vista.
+            provider.postMessageToWebview({
+                command: 'updateMessages',
+                messages: messageHistory
+            });
+
+            vscode.window.showInformationMessage(`GO3T -  ${from}: ${text}`);
         }, new NewMessage({}));
     }
 }
 
-export function deactivate() {}
+export function deactivate() { }
 
 async function initTelegramClient(context: vscode.ExtensionContext) {
     const config = vscode.workspace.getConfiguration('mcpsearch.telegram');
@@ -103,7 +126,7 @@ async function initTelegramClient(context: vscode.ExtensionContext) {
         if (await tgClient.isUserAuthorized()) {
             const newSessionString = stringSession.save();
             await context.globalState.update('telegramSession', newSessionString);
-            vscode.window.showInformationMessage("Sesión de Telegram guardada y usuario autorizado.");
+            vscode.window.showInformationMessage("Go3t iniciado.");
         } else {
             vscode.window.showInformationMessage("Sesión de Telegram iniciada como usuario, pero no autorizada.");
         }
@@ -115,7 +138,7 @@ async function initTelegramClient(context: vscode.ExtensionContext) {
 class MCPViewProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
 
-    constructor(private readonly _context: vscode.ExtensionContext) {}
+    constructor(private readonly _context: vscode.ExtensionContext) { }
 
     public resolveWebviewView(webviewView: vscode.WebviewView) {
         this._view = webviewView;
@@ -129,7 +152,7 @@ class MCPViewProvider implements vscode.WebviewViewProvider {
                 if (message.command === 'sendMessage') {
                     this.sendTelegramMessage(message.text);
                 }
-                 if (message.command === 'markAsRead') {
+                if (message.command === 'markAsRead') {
                     unreadCount = 0;
                     this.updateBadge(unreadCount);
                 }
@@ -139,7 +162,7 @@ class MCPViewProvider implements vscode.WebviewViewProvider {
         );
 
         webviewView.webview.html = this.getHtmlForWebview(webviewView.webview);
-        
+
         // La lógica de reseteo se activa cuando la visibilidad cambia a visible
         this._view.onDidChangeVisibility(() => {
             if (this._view?.visible) {

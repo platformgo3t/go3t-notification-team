@@ -1,7 +1,7 @@
 {
   "name": "go3t-notification-team",
   "displayName": "Go3t Notification Team",
-  "version": "0.0.5",
+  "version": "0.0.7",
   "icon": "resources/logo.png",
   "files": [
     "out/",
